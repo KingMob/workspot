@@ -123,6 +123,8 @@ pub enum SquashResult {
 pub fn handle_squash_jj(
     target: Option<&str>,
     _yes: bool,
+    // Kept for API compatibility with the git-based `handle_squash`. jj has no staging
+    // area (it always tracks all changes), so `_stage` is intentionally unused here.
     _stage: Option<crate::commands::commit::StageMode>,
 ) -> anyhow::Result<SquashResult> {
     let repo = Repository::current()?;
