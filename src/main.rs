@@ -15,6 +15,42 @@ use worktrunk::styling::{
     warning_message,
 };
 
+/// Detect which version control system we're in (jj or git).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum VcsType {
+    Jj,
+    Git,
+}
+
+/// Detect the VCS type for the current directory.
+///
+/// Priority:
+/// 1. WORKTRUNK_VCS environment variable (jj or git)
+/// 2. Presence of .jj directory (jj)
+/// 3. Default to git
+pub(crate) fn detect_vcs() -> VcsType {
+    // Environment variable override
+    if let Ok(vcs) = std::env::var("WORKTRUNK_VCS") {
+        match vcs.to_lowercase().as_str() {
+            "jj" | "jujutsu" => return VcsType::Jj,
+            "git" => return VcsType::Git,
+            _ => {} // Fall through to detection
+        }
+    }
+
+    // Check for .jj directory (walk up from current directory)
+    let mut current = std::env::current_dir().ok();
+    while let Some(dir) = current {
+        if dir.join(".jj").is_dir() {
+            return VcsType::Jj;
+        }
+        current = dir.parent().map(|p| p.to_path_buf());
+    }
+
+    // Default to git
+    VcsType::Git
+}
+
 use commands::command_approval::approve_hooks;
 use commands::context::CommandEnv;
 use commands::list::progressive::RenderMode;
@@ -489,7 +525,22 @@ fn main() {
                 verify,
                 stage,
                 show_prompt,
-            } => step_commit(yes, !verify, stage, show_prompt),
+            } => {
+                // jj mode: use jj commit
+                if detect_vcs() == VcsType::Jj {
+                    if show_prompt {
+                        // TODO: Implement show_prompt for jj
+                        eprintln!(
+                            "{}",
+                            info_message("--show-prompt not yet supported for jj")
+                        );
+                        return;
+                    }
+                    commands::jj_commands::handle_commit_jj(None, yes)
+                } else {
+                    step_commit(yes, !verify, stage, show_prompt)
+                }
+            }
             StepCommand::Squash {
                 target,
                 yes,
@@ -497,42 +548,100 @@ fn main() {
                 stage,
                 show_prompt,
             } => {
-                // Handle --show-prompt early: just build and output the prompt
-                if show_prompt {
-                    commands::step_show_squash_prompt(target.as_deref())
+                // jj mode: use jj squash
+                if detect_vcs() == VcsType::Jj {
+                    if show_prompt {
+                        eprintln!(
+                            "{}",
+                            info_message("--show-prompt not yet supported for jj")
+                        );
+                        return;
+                    }
+                    commands::jj_commands::handle_squash_jj(target.as_deref(), yes, stage)
+                        .map(|result| {
+                            use commands::jj_commands::JjSquashResult;
+                            match result {
+                                JjSquashResult::Squashed | JjSquashResult::NoNetChanges => {}
+                                JjSquashResult::NoCommitsAhead(branch) => {
+                                    eprintln!(
+                                        "{}",
+                                        info_message(format!(
+                                            "Nothing to squash; no commits ahead of {branch}"
+                                        ))
+                                    );
+                                }
+                                JjSquashResult::AlreadySingleCommit => {
+                                    eprintln!(
+                                        "{}",
+                                        info_message("Nothing to squash; already a single commit")
+                                    );
+                                }
+                            }
+                        })
                 } else {
-                    // Approval is handled inside handle_squash (like step_commit)
-                    handle_squash(target.as_deref(), yes, !verify, stage).map(|result| match result
-                    {
-                        SquashResult::Squashed | SquashResult::NoNetChanges => {}
-                        SquashResult::NoCommitsAhead(branch) => {
-                            eprintln!(
-                                "{}",
-                                info_message(format!(
-                                    "Nothing to squash; no commits ahead of {branch}"
-                                ))
-                            );
+                    // Handle --show-prompt early: just build and output the prompt
+                    if show_prompt {
+                        commands::step_show_squash_prompt(target.as_deref())
+                    } else {
+                        // Approval is handled inside handle_squash (like step_commit)
+                        handle_squash(target.as_deref(), yes, !verify, stage).map(|result| {
+                            match result {
+                                SquashResult::Squashed | SquashResult::NoNetChanges => {}
+                                SquashResult::NoCommitsAhead(branch) => {
+                                    eprintln!(
+                                        "{}",
+                                        info_message(format!(
+                                            "Nothing to squash; no commits ahead of {branch}"
+                                        ))
+                                    );
+                                }
+                                SquashResult::AlreadySingleCommit => {
+                                    eprintln!(
+                                        "{}",
+                                        info_message("Nothing to squash; already a single commit")
+                                    );
+                                }
+                            }
+                        })
+                    }
+                }
+            }
+            StepCommand::Push { target } => {
+                // jj mode: use jj git push
+                if detect_vcs() == VcsType::Jj {
+                    commands::jj_commands::handle_push_jj(target.as_deref())
+                } else {
+                    handle_push(target.as_deref(), "Pushed to", None)
+                }
+            }
+            StepCommand::Rebase { target } => {
+                // jj mode: use jj rebase
+                if detect_vcs() == VcsType::Jj {
+                    commands::jj_commands::handle_rebase_jj(target.as_deref()).map(|result| {
+                        use commands::jj_commands::JjRebaseResult;
+                        match result {
+                            JjRebaseResult::Rebased => (),
+                            JjRebaseResult::UpToDate(branch) => {
+                                eprintln!(
+                                    "{}",
+                                    info_message(cformat!(
+                                        "Already up to date with <bold>{branch}</>"
+                                    ))
+                                );
+                            }
                         }
-                        SquashResult::AlreadySingleCommit => {
+                    })
+                } else {
+                    handle_rebase(target.as_deref()).map(|result| match result {
+                        RebaseResult::Rebased => (),
+                        RebaseResult::UpToDate(branch) => {
                             eprintln!(
                                 "{}",
-                                info_message("Nothing to squash; already a single commit")
+                                info_message(cformat!("Already up to date with <bold>{branch}</>"))
                             );
                         }
                     })
                 }
-            }
-            StepCommand::Push { target } => handle_push(target.as_deref(), "Pushed to", None),
-            StepCommand::Rebase { target } => {
-                handle_rebase(target.as_deref()).map(|result| match result {
-                    RebaseResult::Rebased => (),
-                    RebaseResult::UpToDate(branch) => {
-                        eprintln!(
-                            "{}",
-                            info_message(cformat!("Already up to date with <bold>{branch}</>"))
-                        );
-                    }
-                })
             }
             StepCommand::CopyIgnored { from, to, dry_run } => {
                 step_copy_ignored(from.as_deref(), to.as_deref(), dry_run)
@@ -689,37 +798,42 @@ fn main() {
                 commands::statusline::run(effective_format)
             }
             None => {
-                // Load config and merge with CLI flags (CLI flags take precedence)
-                UserConfig::load()
-                    .context("Failed to load config")
-                    .and_then(|config| {
-                        // Get resolved config (project-specific merged with global, defaults applied)
-                        let project_id = Repository::current()
-                            .ok()
-                            .and_then(|r| r.project_identifier().ok());
-                        let resolved = config.resolved(project_id.as_deref());
+                // Check if we're in a jj repository
+                if detect_vcs() == VcsType::Jj {
+                    commands::jj_commands::handle_list_jj(format)
+                } else {
+                    // Load config and merge with CLI flags (CLI flags take precedence)
+                    UserConfig::load()
+                        .context("Failed to load config")
+                        .and_then(|config| {
+                            // Get resolved config (project-specific merged with global, defaults applied)
+                            let project_id = Repository::current()
+                                .ok()
+                                .and_then(|r| r.project_identifier().ok());
+                            let resolved = config.resolved(project_id.as_deref());
 
-                        // CLI flags override config
-                        let show_branches = branches || resolved.list.branches();
-                        let show_remotes = remotes || resolved.list.remotes();
-                        let show_full = full || resolved.list.full();
+                            // CLI flags override config
+                            let show_branches = branches || resolved.list.branches();
+                            let show_remotes = remotes || resolved.list.remotes();
+                            let show_full = full || resolved.list.full();
 
-                        // Convert two bools to Option<bool>: Some(true), Some(false), or None
-                        let progressive_opt = match (progressive, no_progressive) {
-                            (true, _) => Some(true),
-                            (_, true) => Some(false),
-                            _ => None,
-                        };
-                        let render_mode = RenderMode::detect(progressive_opt);
-                        handle_list(
-                            format,
-                            show_branches,
-                            show_remotes,
-                            show_full,
-                            render_mode,
-                            &config,
-                        )
-                    })
+                            // Convert two bools to Option<bool>: Some(true), Some(false), or None
+                            let progressive_opt = match (progressive, no_progressive) {
+                                (true, _) => Some(true),
+                                (_, true) => Some(false),
+                                _ => None,
+                            };
+                            let render_mode = RenderMode::detect(progressive_opt);
+                            handle_list(
+                                format,
+                                show_branches,
+                                show_remotes,
+                                show_full,
+                                render_mode,
+                                &config,
+                            )
+                        })
+                }
             }
         },
         Commands::Switch {
@@ -777,6 +891,19 @@ fn main() {
                     }
                 };
 
+                // Check if we're in a jj repository
+                if detect_vcs() == VcsType::Jj {
+                    let jj_options = commands::jj_commands::SwitchOptions {
+                        bookmark: Some(branch.clone()),
+                        create,
+                        base,
+                        yes,
+                        clobber,
+                    };
+                    return commands::jj_commands::handle_switch_jj(jj_options, &config)
+                        .map(|_| ()); // Discard the path, just return success
+                }
+
                 handle_switch(
                     SwitchOptions {
                         branch: &branch,
@@ -804,6 +931,19 @@ fn main() {
         } => UserConfig::load()
             .context("Failed to load config")
             .and_then(|config| {
+                // Check if we're in a jj repository
+                if detect_vcs() == VcsType::Jj {
+                    let jj_options = commands::jj_commands::RemoveOptions {
+                        names: branches.clone(),
+                        delete_bookmark: delete_branch,
+                        force_delete,
+                        foreground,
+                        yes,
+                        force,
+                    };
+                    return commands::jj_commands::handle_remove_jj(jj_options).map(|_| ());
+                }
+
                 // Handle deprecated --no-background flag
                 if no_background {
                     eprintln!(
@@ -1010,18 +1150,32 @@ fn main() {
                 }
             }
 
-            // Pass CLI flags as options; handle_merge determines effective defaults
-            // using per-project config merged with global config
-            handle_merge(MergeOptions {
-                target: target.as_deref(),
-                squash: flag_pair(squash, no_squash),
-                commit: flag_pair(commit, no_commit),
-                rebase: flag_pair(rebase, no_rebase),
-                remove: flag_pair(remove, no_remove),
-                verify: flag_pair(verify, no_verify),
-                yes,
-                stage,
-            })
+            // jj mode: use jj merge workflow
+            if detect_vcs() == VcsType::Jj {
+                // Note: jj merge doesn't use commit flag (jj always has working copy in a commit)
+                // and verify is not applicable (no hooks yet)
+                let _ = (commit, no_commit, verify, no_verify, stage); // suppress warnings
+                commands::jj_commands::handle_merge_jj(commands::jj_commands::JjMergeOptions {
+                    target: target.as_deref(),
+                    squash: flag_pair(squash, no_squash),
+                    rebase: flag_pair(rebase, no_rebase),
+                    remove: flag_pair(remove, no_remove),
+                    yes,
+                })
+            } else {
+                // Pass CLI flags as options; handle_merge determines effective defaults
+                // using per-project config merged with global config
+                handle_merge(MergeOptions {
+                    target: target.as_deref(),
+                    squash: flag_pair(squash, no_squash),
+                    commit: flag_pair(commit, no_commit),
+                    rebase: flag_pair(rebase, no_rebase),
+                    remove: flag_pair(remove, no_remove),
+                    verify: flag_pair(verify, no_verify),
+                    yes,
+                    stage,
+                })
+            }
         }
     };
 
