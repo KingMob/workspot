@@ -60,17 +60,23 @@ macro_rules! skip_if_no_jj {
 
 /// Rstest fixture for jj test repos.
 ///
-/// Creates a fresh JjTestRepo for each test.
-/// The test is skipped if jj is not available.
+/// Creates a fresh `JjTestRepo` for each test.
+///
+/// Note: this fixture does **not** automatically skip tests when `jj` is not
+/// available. Use the [`skip_if_no_jj!`](crate::common::jj::skip_if_no_jj)
+/// macro (or [`jj_available`](crate::common::jj::jj_available)) at the start
+/// of tests that require `jj`.
 ///
 /// # Example
 /// ```ignore
 /// use rstest::rstest;
-/// use crate::common::jj::jj_repo;
+/// use crate::common::jj::{jj_repo, skip_if_no_jj};
 ///
 /// #[rstest]
 /// fn test_jj_workspace(jj_repo: JjTestRepo) {
-///     // jj_repo is a fresh JjTestRepo
+///     skip_if_no_jj!();
+///     // `jj_repo` is a fresh `JjTestRepo`
+///     // ... test code ...
 /// }
 /// ```
 #[rstest::fixture]
