@@ -32,8 +32,8 @@ mod repository_detection {
     }
 
     /// Test error when not in a jj repository.
-    #[rstest]
-    fn test_error_when_not_in_jj_repo(jj_repo: JjTestRepo) {
+    #[test]
+    fn test_error_when_not_in_jj_repo() {
         skip_if_no_jj!();
 
         let temp = tempfile::TempDir::new().unwrap();
