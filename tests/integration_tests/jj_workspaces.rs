@@ -186,9 +186,11 @@ mod workspace_add {
         jj_repo.add_workspace("duplicate");
 
         // Try to add another workspace with same name
+        let dup_path = jj_repo.home_path().join("dup-workspace");
+        let dup_str = dup_path.to_str().unwrap();
         let output = jj_repo
             .jj_command()
-            .args(["workspace", "add", "--name", "duplicate", "/tmp/dup"])
+            .args(["workspace", "add", "--name", "duplicate", dup_str])
             .output()
             .unwrap();
 
