@@ -32,17 +32,19 @@ mod repository_detection {
     }
 
     /// Test error when not in a jj repository.
-    #[test]
-    fn test_error_when_not_in_jj_repo() {
+    #[rstest]
+    fn test_error_when_not_in_jj_repo(jj_repo: JjTestRepo) {
         skip_if_no_jj!();
 
         let temp = tempfile::TempDir::new().unwrap();
-        let result = std::process::Command::new("jj")
-            .arg("workspace")
+        let mut cmd = std::process::Command::new("jj");
+        cmd.arg("workspace")
             .arg("list")
             .current_dir(temp.path())
-            .output()
-            .unwrap();
+            .env("JJ_USER", "Test User")
+            .env("JJ_EMAIL", "test@example.com")
+            .env("JJ_TIMESTAMP", "2025-01-01T00:00:00Z");
+        let result = cmd.output().unwrap();
 
         assert!(!result.status.success());
         let stderr = String::from_utf8_lossy(&result.stderr);
@@ -210,11 +212,10 @@ mod workspace_add {
         let workspace_path = jj_repo.add_workspace("shared");
 
         // Workspace should see the commit
-        let output = std::process::Command::new("jj")
-            .args(["log", "-r", "all()", "--no-graph", "-T", "description"])
-            .current_dir(&workspace_path)
-            .output()
-            .unwrap();
+        let mut cmd = jj_repo.jj_command();
+        cmd.args(["log", "-r", "all()", "--no-graph", "-T", "description"])
+            .current_dir(&workspace_path);
+        let output = cmd.output().unwrap();
 
         let log = String::from_utf8_lossy(&output.stdout);
         assert!(
@@ -422,8 +423,8 @@ mod workspace_bookmark_integration {
         assert!(jj_repo.bookmark_exists("feature-branch"));
 
         // Workspace should be on the bookmark
-        let bookmark = std::process::Command::new("jj")
-            .args([
+        let mut cmd = jj_repo.jj_command();
+        cmd.args([
                 "log",
                 "-r",
                 "@",
@@ -431,9 +432,8 @@ mod workspace_bookmark_integration {
                 "-T",
                 r#"bookmarks.map(|b| b.name())"#,
             ])
-            .current_dir(&workspace_path)
-            .output()
-            .unwrap();
+            .current_dir(&workspace_path);
+        let bookmark = cmd.output().unwrap();
 
         let output = String::from_utf8_lossy(&bookmark.stdout);
         assert!(
@@ -565,11 +565,10 @@ mod commit_operations {
         let workspace_path = jj_repo.add_workspace("commit-test");
         jj_repo.commit_in(&workspace_path, "Workspace commit");
 
-        let log = std::process::Command::new("jj")
-            .args(["log", "-r", "@-", "--no-graph", "-T", "description"])
-            .current_dir(&workspace_path)
-            .output()
-            .unwrap();
+        let mut cmd = jj_repo.jj_command();
+        cmd.args(["log", "-r", "@-", "--no-graph", "-T", "description"])
+            .current_dir(&workspace_path);
+        let log = cmd.output().unwrap();
 
         let output = String::from_utf8_lossy(&log.stdout);
         assert!(output.contains("Workspace commit"));
