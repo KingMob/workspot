@@ -210,7 +210,8 @@ mod workspace_add {
         let workspace_path = jj_repo.add_workspace("shared");
 
         // Workspace should see the commit
-        let output = std::process::Command::new("jj")
+        let output = jj_repo
+            .jj_command()
             .args(["log", "-r", "all()", "--no-graph", "-T", "description"])
             .current_dir(&workspace_path)
             .output()
@@ -566,7 +567,8 @@ mod commit_operations {
         let workspace_path = jj_repo.add_workspace("commit-test");
         jj_repo.commit_in(&workspace_path, "Workspace commit");
 
-        let log = std::process::Command::new("jj")
+        let log = jj_repo
+            .jj_command()
             .args(["log", "-r", "@-", "--no-graph", "-T", "description"])
             .current_dir(&workspace_path)
             .output()
