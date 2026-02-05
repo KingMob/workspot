@@ -567,7 +567,8 @@ mod commit_operations {
         let workspace_path = jj_repo.add_workspace("commit-test");
         jj_repo.commit_in(&workspace_path, "Workspace commit");
 
-        let mut cmd = jj_repo.jj_command(&["log", "-r", "@-", "--no-graph", "-T", "description"]);
+        let mut cmd = jj_repo.jj_command();
+        cmd.args(&["log", "-r", "@-", "--no-graph", "-T", "description"]);
         cmd.current_dir(&workspace_path);
         let log = cmd.output().unwrap();
 
@@ -675,9 +676,26 @@ mod remove_operations {
         let workspace_path = jj_repo.add_workspace("to-force-remove");
         jj_repo.make_dirty_in(&workspace_path);
 
-        // With force, should remove even with uncommitted changes
-        // This is TDD for handle_remove_jj
+        // Workspace exists and is dirty
         assert!(workspace_path.exists());
+        assert!(workspace_path.join("dirty.txt").exists());
+
+        // With --force, should remove even with uncommitted changes
+        let output = jj_repo
+            .wt_command()
+            .args(["remove", "to-force-remove", "--force", "--yes"])
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "wt remove --force should succeed even with dirty workspace\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Workspace should be removed from jj's tracking
+        assert!(!jj_repo.workspace_exists("to-force-remove"));
     }
 
     /// Test remove workspace without force fails when dirty.
@@ -688,8 +706,26 @@ mod remove_operations {
         let workspace_path = jj_repo.add_workspace("dirty-no-force");
         jj_repo.make_dirty_in(&workspace_path);
 
-        // Expected behavior: remove without --force should fail
-        // This is TDD for handle_remove_jj
+        // Workspace exists and is dirty
+        assert!(workspace_path.exists());
+        assert!(workspace_path.join("dirty.txt").exists());
+
+        // Remove without --force should fail
+        let output = jj_repo
+            .wt_command()
+            .args(["remove", "dirty-no-force", "--yes"])
+            .output()
+            .unwrap();
+
+        assert!(
+            !output.status.success(),
+            "wt remove should fail on dirty workspace without --force\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Workspace should still exist
+        assert!(jj_repo.workspace_exists("dirty-no-force"));
         assert!(workspace_path.exists());
         assert!(workspace_path.join("dirty.txt").exists());
     }
@@ -701,8 +737,27 @@ mod remove_operations {
 
         jj_repo.add_workspace_with_bookmark("delete-both", "delete-both-branch");
 
-        // Expected behavior: --delete should remove bookmark too
+        // Verify bookmark exists before removal
         assert!(jj_repo.bookmark_exists("delete-both-branch"));
+        assert!(jj_repo.workspace_exists("delete-both"));
+
+        // Remove workspace with --delete to also remove the bookmark
+        let output = jj_repo
+            .wt_command()
+            .args(["remove", "delete-both", "--delete", "--yes"])
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "wt remove --delete should succeed\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Both workspace and bookmark should be removed
+        assert!(!jj_repo.workspace_exists("delete-both"));
+        assert!(!jj_repo.bookmark_exists("delete-both-branch"));
     }
 }
 
