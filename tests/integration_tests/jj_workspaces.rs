@@ -422,7 +422,8 @@ mod workspace_bookmark_integration {
         assert!(jj_repo.bookmark_exists("feature-branch"));
 
         // Workspace should be on the bookmark
-        let bookmark = std::process::Command::new("jj")
+        let bookmark = jj_repo
+            .jj_command()
             .args([
                 "log",
                 "-r",
