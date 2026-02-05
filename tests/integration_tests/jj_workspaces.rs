@@ -738,8 +738,12 @@ mod rebase_operations {
             .output()
             .unwrap();
 
-        // Document the expected behavior
-        assert!(output.status.success() || !output.status.success());
+        // Rebase should succeed; include stderr on failure for easier debugging
+        assert!(
+            output.status.success(),
+            "Expected `jj rebase -d main` to succeed, but it failed with stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     /// Test rebase when already up-to-date.
