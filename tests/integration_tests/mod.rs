@@ -57,3 +57,6 @@ pub mod step_copy_ignored;
 pub mod step_relocate;
 pub mod switch;
 pub mod user_hooks;
+
+// Jujutsu (jj) workspace tests
+pub mod jj_workspaces;

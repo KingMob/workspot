@@ -52,6 +52,9 @@ pub mod shell;
 // Cross-platform mock command helpers
 pub mod mock_commands;
 
+// Jujutsu (jj) test helpers
+pub mod jj;
+
 /// Block SIGTTIN and SIGTTOU signals to prevent test processes from being
 /// stopped when PTY operations interact with terminal control in background
 /// process groups.
